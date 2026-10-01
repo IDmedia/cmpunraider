@@ -1,4 +1,4 @@
-# cmpunraider – Unlock the CMP 170HX's full 64 GB on Unraid
+# cmpunraider – Unlock the CMP 170HX on Unraid
 
 Builds an Nvidia driver package for Unraid whose kernel modules are patched with
 [cmpunlocker](https://github.com/amoghmunikote/cmpunlocker), and drops it in place of the
