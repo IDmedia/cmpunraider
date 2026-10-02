@@ -180,15 +180,15 @@ install_host() {
   echo 'options nvidia NVreg_RegistryDwords="RmForceEnableGen2=1;RMPcieLinkSpeed=0x1"' \
     > /boot/config/modprobe.d/cmp-pcie-gen2.conf
 
-  # Gen2 retrain only succeeds while the nvidia driver is NOT loaded, but the plugin has already loaded
-  # it by the time go runs. So go unloads it, retrains, reloads it (nothing else uses it yet: no docker,
-  # no persistence mode). The loop itself rarely observes Gen2 at boot (log says "no Gen2 window"),
-  # but the link still comes up Gen2 after the reload, so cap attempts: 600 blocked boot ~41s, 100 ~7s.
+  # The plugin has already loaded the driver by the time go runs, but by then the card advertises only
+  # Gen1 (LnkCap2=00000002), so no retrain can work. Loading the driver sets LnkCap2=00000006 (the driver's
+  # own retrain at probe misses), so go unloads it (nothing else uses it yet: no docker, no persistence
+  # mode), reloads it, then retrains: that succeeds at iteration 1. Attempts capped: 600 blocked boot ~41s.
   local HAMMER="$SCRIPT_DIR/cache/cmpunlocker/tools/hammer.sh"
   [ -f "$HAMMER" ] || die "$HAMMER not found, run: bash cmpunraider.sh build"
   cp "$HAMMER" /boot/config/cmp-gen2-hammer.sh
   sed -i '/# cmp-unraid gen2/d' /boot/config/go
-  sed -i '\|/usr/local/sbin/emhttp|i ( rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia; CMP170HX_GEN2_MAX_ITERATIONS=100 bash /boot/config/cmp-gen2-hammer.sh; modprobe nvidia; modprobe nvidia_uvm ) 2>/dev/null  # cmp-unraid gen2' /boot/config/go
+  sed -i '\|/usr/local/sbin/emhttp|i ( rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia; modprobe nvidia; modprobe nvidia_uvm; CMP170HX_GEN2_MAX_ITERATIONS=100 bash /boot/config/cmp-gen2-hammer.sh ) 2>/dev/null  # cmp-unraid gen2' /boot/config/go
   grep -q '# cmp-unraid gen2' /boot/config/go || die "no emhttp line in /boot/config/go; add manually before it: bash /boot/config/cmp-gen2-hammer.sh"
 
   cat <<EOF

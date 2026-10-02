@@ -1,4 +1,4 @@
-# cmpunraider – Unlock the CMP 170HX on Unraid
+# cmpunraider – Unlock the CMP 170HX's full 64 GB on Unraid
 
 Builds an Nvidia driver package for Unraid whose kernel modules are patched with
 [cmpunlocker](https://github.com/amoghmunikote/cmpunlocker), and drops it in place of the
@@ -51,8 +51,8 @@ Puts the package where the plugin loads it. Refuses without a CMP 170HX present
 | `/boot/config/plugins/nvidia-driver/packages/6.18.38/` | Stock `.txz` + `.md5` deleted, patched ones copied in |
 | `/boot/config/plugins/nvidia-driver/settings.cfg` | `driver_version=615.71.09`, `update_check=false`. Original saved to `./out/settings.cfg.orig` |
 | `/boot/config/modprobe.d/cmp-pcie-gen2.conf` | Created (PCIe Gen2 module option from cmpunlocker) |
-| `/boot/config/cmp-gen2-hammer.sh` | Copy of cmpunlocker's `tools/hammer.sh`. Retrains the link to Gen2; this only works while the nvidia driver is not loaded |
-| `/boot/config/go` | One line inserted before `emhttp` (marked `# cmp-unraid gen2`) that unloads the nvidia modules (the plugin has already loaded them), runs the script above (capped at 100 attempts), and reloads them. Adds ~7 s to boot; log in `/var/log/gen2.log`. The log usually says "no Gen2 window caught" even when the link comes up at Gen2 after the reload, so trust `nvidia-smi`, not the log |
+| `/boot/config/cmp-gen2-hammer.sh` | Copy of cmpunlocker's `tools/hammer.sh`. Asks the link to retrain at Gen2; this only succeeds when the card advertises Gen2 (see below) |
+| `/boot/config/go` | One line inserted before `emhttp` (marked `# cmp-unraid gen2`) that unloads the nvidia modules (the plugin has already loaded them), reloads them, and runs the script above (capped at 100 attempts). Adds a few seconds to boot; log in `/var/log/gen2.log`. Trust `nvidia-smi`, not the log |
 
 Then **power off completely** (not a warm reboot), power on, verify:
 
@@ -65,11 +65,15 @@ boots at gen 1; the `go` hook above retrains it to gen 2. Check `pcie.link.gen.c
 GPU is busy, since an idle card can report a lower speed. The link width (e.g. x8) is set by your
 motherboard slot, not by this tool.
 
-**Expect a harmless "Gen2 failed" message.** On every boot the console and `/var/log/gen2.log` show
-`no Gen2 window caught after 100 attempts` (rc=1), and `dmesg` shows
-`CMP Gen2: PCIe retrain completed without Gen2 link`. Both are snapshots taken before the link finishes
-retraining. The link still comes up at gen 2 after the driver reloads, so judge by `nvidia-smi` and
-`lspci -vv -s <bdf> | grep LnkSta:` (`Speed 5GT/s`), not by those messages.
+**Expect a harmless "Gen2 failed" message.** `dmesg` shows `CMP Gen2: PCIe retrain completed without Gen2
+link` on every boot: that is the driver's own retrain at load, which misses. Judge by `nvidia-smi` and
+`lspci -vv -s <bdf> | grep LnkSta:` (`Speed 5GT/s`), not by that message.
+
+**Why the hook reloads the driver first.** Loading the driver is what makes the card advertise Gen2
+(`setpci ... CAP_EXP+2c.l` goes from `00000002` to `00000006`), but the driver's own retrain misses,
+and by the time `go` runs the plugin-loaded driver's setting is gone again (observed: `00000002` at
+~214 s after boot, for reasons not found). While the card advertises only Gen1 no retrain can work, so
+the hook reloads the driver, which sets `00000006`, and then retrains, which succeeds at iteration 1.
 
 If it stays at gen 1, check `setpci -s <bdf> CAP_EXP+2c.l`: `00000006` means the card advertises
 gen 2, `00000002` means it doesn't. In the second case the retrain can't help.
