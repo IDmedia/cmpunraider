@@ -212,7 +212,8 @@ EOF
 
 # ---------------------------------------------------------------- host: uninstall
 uninstall_host() {
-  local PLG=/boot/config/plugins/nvidia-driver PKGDIR="$PLG/packages/$KSHORT"
+  local PLG=/boot/config/plugins/nvidia-driver PKGDIR
+  PKGDIR="$PLG/packages/$KSHORT"
   [ -d "$PLG" ] || die "Nvidia-Driver plugin not installed"
 
   local STOCK="$SCRIPT_DIR/cache/$PKG" ORIG="$SCRIPT_DIR/out/settings.cfg.orig"
