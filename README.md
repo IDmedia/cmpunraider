@@ -77,11 +77,16 @@ nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.current --format=csv
 An idle card can report a lower link speed, so check gen while the GPU is busy. For more detail:
 
 ```bash
+nvidia-smi -q -d ECC                                  # ECC Mode "Enabled" and error counters at 0 (cmpunlocker v0.5+)
 lspci -vv -s <bdf> | grep LnkSta:                     # Speed 5GT/s = gen 2; width (x8, x16) comes from your slot
 bash <script folder>/cache/cmpunlocker/verify.sh      # cmpunlocker's own check: memory, profile and PCIe gen
-dmesg | grep SEC2_DEBUG                               # unlock log lines
+dmesg | grep "late PMA extension status=0x0"          # one line per unlocked card (full unlock log: grep SEC2_DEBUG, ~100 lines)
 cat /var/log/gen2.log                                 # result of the boot-time Gen2 retrain
 ```
+
+Watch the ECC counters over time: correctable errors (`DRAM Correctable`) are fixed by ECC, but a counter that
+keeps rising, or any `Uncorrectable` error, means failing memory. That is the check for the binned HBM
+mentioned in Notes.
 
 **Memory still stock.** Make sure you did a full power-off, not a warm reboot. Check that the patched driver is
 loaded (`modinfo -F version nvidia`, `dmesg | grep SEC2_DEBUG`). An Unraid update brings a new kernel and the
