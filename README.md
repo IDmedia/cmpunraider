@@ -36,11 +36,14 @@ Optional environment variables:
 | `DRV` | `615.71.09` | Driver version; must be in cmpunlocker's `driver/VERSION` and available as an Unraid package for your kernel |
 | `CMPUNLOCKER_REF` | `v0.5` | cmpunlocker tag or branch. The default keeps builds reproducible; `master` takes the latest changes (untested here, recheck the card after building) |
 | `PROFILE` | auto | `8gb`, `10gb` or `mixed`; detected from `lspci`, `8gb` if no card is found |
-| `FORCE` | unset | `FORCE=1` lets `install` run without a card present |
+| `FORCE` | unset | `FORCE=1` lets `install` run without a card present or with a mismatched profile |
 
 ### `bash cmpunraider.sh install`
 
-Refuses without a CMP 170HX present. Changes on the flash drive (`/boot`):
+Runs all its checks before touching anything. It refuses if no CMP 170HX is present, if the package was
+built for a different card profile than the one installed (e.g. built without a card, so `8gb`, then used
+with a 10 GB card: rebuild with the card in place), or if the `go` file has no `emhttp` line. Changes on the
+flash drive (`/boot`):
 
 | Path | Change |
 |---|---|

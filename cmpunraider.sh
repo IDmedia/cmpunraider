@@ -134,9 +134,10 @@ PY
   echo "cmpunlocker ${CMPUNLOCKER_REF} $(date -u +%F) profile=${PROFILE}" > "/pkg${MODDIR}/unraid_build"
 
   # 6. repack as Slackware package with the stock filename
-  rm -f "$OUT/$PKG" "$OUT/$PKG.md5"
+  rm -f "$OUT/$PKG" "$OUT/$PKG.md5" "$OUT/$PKG.profile"
   (cd /pkg && makepkg -l n -c n "$OUT/$PKG")
   md5sum "$OUT/$PKG" | cut -d' ' -f1 > "$OUT/$PKG.md5"
+  echo "$PROFILE" > "$OUT/$PKG.profile"      # lets install catch a package built for the wrong card
   echo "==> built $OUT/$PKG ($(du -h "$OUT/$PKG" | cut -f1))"
 }
 
@@ -145,7 +146,8 @@ build_host() {
   command -v docker >/dev/null || die "docker not running (start the array / docker service)"
   detect_profile
   mkdir -p "$SCRIPT_DIR/out" "$SCRIPT_DIR/cache"
-  docker run --rm -it --entrypoint bash \
+  local TTY=""; [ -t 0 ] && [ -t 1 ] && TTY="-it"      # no TTY under User Scripts/cron
+  docker run --rm $TTY --entrypoint bash \
     -e IN_CONTAINER=1 -e DRV="$DRV" -e PROFILE="$PROFILE" -e CMPUNLOCKER_REF="$CMPUNLOCKER_REF" \
     -v "$SCRIPT_DIR":/work \
     "$IMAGE" /work/cmpunraider.sh build
@@ -156,11 +158,18 @@ build_host() {
 # ---------------------------------------------------------------- host: install
 install_host() {
   local PLG=/boot/config/plugins/nvidia-driver PKGDIR SRC="$SCRIPT_DIR/out/$PKG"
+  local HAMMER="$SCRIPT_DIR/cache/cmpunlocker/tools/hammer.sh"
   PKGDIR="$PLG/packages/$KSHORT"
+  # all checks first: nothing on /boot is touched unless every one passes
   [ -f "$SRC" ] || die "$SRC not found, run: bash cmpunraider.sh build"
+  [ -f "$HAMMER" ] || die "$HAMMER not found, run: bash cmpunraider.sh build"
   [ -d "$PLG" ] || die "Nvidia-Driver plugin not installed"
+  grep -q '/usr/local/sbin/emhttp' /boot/config/go || die "no emhttp line in /boot/config/go, cannot add the Gen2 hook"
   detect_profile
   [ "$CARD_FOUND" = 1 ] || [ -n "${FORCE:-}" ] || die "no CMP 170HX in this system; install the card first (or FORCE=1)"
+  local built=""; [ -f "$SRC.profile" ] && built="$(cat "$SRC.profile")"   # absent for packages built before this check existed
+  [ -z "$built" ] || [ "$built" = mixed ] || [ "$built" = "$PROFILE" ] || [ -n "${FORCE:-}" ] \
+    || die "package was built for profile '$built' but this system needs '$PROFILE'; rebuild with the card installed (or FORCE=1)"
   local need free
   need=$(du -m "$SRC" | cut -f1); free=$(df -m /boot | awk 'NR==2{print $4}')
   [ "$free" -gt "$((need + 50))" ] || die "only ${free}MB free on /boot, need ~${need}MB"
@@ -184,12 +193,9 @@ install_host() {
   # Gen1 (LnkCap2=00000002), so no retrain can work. Loading the driver sets LnkCap2=00000006 (the driver's
   # own retrain at probe misses), so go unloads it (nothing else uses it yet: no docker, no persistence
   # mode), reloads it, then retrains: that succeeds at iteration 1. Attempts capped: 600 blocked boot ~41s.
-  local HAMMER="$SCRIPT_DIR/cache/cmpunlocker/tools/hammer.sh"
-  [ -f "$HAMMER" ] || die "$HAMMER not found, run: bash cmpunraider.sh build"
   cp "$HAMMER" /boot/config/cmp-gen2-hammer.sh
   sed -i '/# cmp-unraid gen2/d' /boot/config/go
   sed -i '\|/usr/local/sbin/emhttp|i ( rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia; modprobe nvidia; modprobe nvidia_uvm; CMP170HX_GEN2_MAX_ITERATIONS=100 bash /boot/config/cmp-gen2-hammer.sh ) 2>/dev/null  # cmp-unraid gen2' /boot/config/go
-  grep -q '# cmp-unraid gen2' /boot/config/go || die "no emhttp line in /boot/config/go; add manually before it: bash /boot/config/cmp-gen2-hammer.sh"
 
   cat <<EOF
 
@@ -197,7 +203,8 @@ Installed $PKG to $PKGDIR
 Now do a COLD boot: shut down, wait for power to fully drop, power on.
 Verify after boot:
   nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.current --format=csv
-  dmesg | grep SEC2_DEBUG
+  nvidia-smi -q -d ECC
+  dmesg | grep "late PMA extension status=0x0"
   bash $SCRIPT_DIR/cache/cmpunlocker/verify.sh
 Revert: bash $SCRIPT_DIR/cmpunraider.sh uninstall ; reboot
 EOF
