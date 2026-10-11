@@ -1,126 +1,118 @@
 # cmpunraider – Unlock the CMP 170HX's full 64 GB on Unraid
 
-Builds an Nvidia driver package for Unraid whose kernel modules are patched with
-[cmpunlocker](https://github.com/amoghmunikote/cmpunlocker), and drops it in place of the
-stock package used by the Nvidia-Driver plugin. The plugin then loads it on every boot,
-so the card is unlocked automatically. No VM, no User Scripts.
+Builds an Nvidia driver package for Unraid with kernel modules patched by
+[cmpunlocker](https://github.com/amoghmunikote/cmpunlocker) and puts it where the Nvidia-Driver
+plugin loads its driver from. The card is unlocked on every boot. No VM, no User Scripts.
+
+```bash
+bash cmpunraider.sh build      # compile the patched driver (needs Docker + internet)
+bash cmpunraider.sh install    # put it in place, then power off completely and boot
+nvidia-smi --query-gpu=memory.total,pcie.link.gen.current --format=csv    # check it worked
+```
 
 ## Prerequisites
 
-- Unraid 7.x with the **Nvidia-Driver plugin** (Community Apps) installed. The plugin stays
-  installed; it is what loads the package at boot and wires up Docker.
-- Don't touch the driver version dropdown in *Settings → Nvidia Driver* before running
-  `install` — it writes `driver_version=615.71.09` (the regular `nvidia-*` build, not the
-  "Open Source" `nvos-*` one) into `settings.cfg` for you. Changing it in the GUI first just
-  triggers a pointless live download of the stock driver that `install` immediately overwrites.
-- Docker service running (the build runs inside a container).
-- Internet access during `build`.
-- ~1.5 GB free on the share where you put the script (build cache + output), ~400 MB free on the flash drive.
-- CMP 170HX installed (only needed for `install`; `build` works without the card).
+- Unraid 7.x with the **Nvidia-Driver plugin** installed. It stays installed and loads the package at boot.
+- Docker running (the build happens in a container) and internet access during `build`.
+- ~1.5 GB free where you keep the script (build cache + output) and ~400 MB on the flash drive.
+- The CMP 170HX installed (only `install` needs it; `build` works without).
+- Leave the plugin's driver version dropdown alone before `install`. `install` sets `driver_version`
+  for you, and changing it in the GUI first just triggers a pointless download.
 
 ## Commands
 
-Run as root in the Unraid terminal, from the folder containing the script
-(e.g. `/mnt/user/appdata/cmpunraider/`).
+Run as root from the folder containing the script, e.g. `/mnt/user/system/cmpunraider/`.
 
 ### `bash cmpunraider.sh build`
 
-Builds the package. Writes nothing outside the script's own folder.
+Downloads the pre-compiled Unraid kernel tree, cmpunlocker and the stock
+`nvidia-<driver>-<kernel>-1.txz` into `./cache/`, compiles the patched modules, swaps them into the
+stock package and writes `./out/nvidia-<driver>-<kernel>-1.txz`. Nothing outside the script's folder is touched.
 
-- Pulls Docker image `ghcr.io/ich777/unraid_kernel:gcc_14.2.0`.
-- Downloads the pre-compiled Unraid kernel tree, cmpunlocker, PyYAML and the stock
-  `nvidia-<driver>-<kernel>-1.txz` into `./cache/`.
-- Compiles the patched open kernel modules, swaps them into the stock package, repacks.
-- Output: `./out/nvidia-615.71.09-6.18.38-Unraid-1.txz` and `.md5`.
+Optional environment variables:
 
-Env overrides:
-- `DRV=610.43.03` – other driver version (must be in cmpunlocker's supported list).
-- `PROFILE=8gb|10gb` – auto-detected from the card, defaults to 8gb without card.
-- `CMPUNLOCKER_REF=v0.4` – cmpunlocker tag or branch to build. Defaults to the tested release `v0.4`
-  so builds stay reproducible. Use `CMPUNLOCKER_REF=master` for the latest upstream changes (untested
-  here, so recheck memory size and gen 2 after the build), or another tag like `v0.5` when one exists.
-  The chosen ref is cached in `./cache/cmpunlocker`; it is re-downloaded on every `build`.
+| Variable | Default | Meaning |
+|---|---|---|
+| `DRV` | `615.71.09` | Driver version; must be in cmpunlocker's `driver/VERSION` and available as an Unraid package for your kernel |
+| `CMPUNLOCKER_REF` | `v0.5` | cmpunlocker tag or branch. The default keeps builds reproducible; `master` takes the latest changes (untested here, recheck the card after building) |
+| `PROFILE` | auto | `8gb`, `10gb` or `mixed`; detected from `lspci`, `8gb` if no card is found |
+| `FORCE` | unset | `FORCE=1` lets `install` run without a card present |
 
 ### `bash cmpunraider.sh install`
 
-Puts the package where the plugin loads it. Refuses without a CMP 170HX present
-(`FORCE=1` overrides). Changes on the flash drive (`/boot`):
+Refuses without a CMP 170HX present. Changes on the flash drive (`/boot`):
 
 | Path | Change |
 |---|---|
-| `/boot/config/plugins/nvidia-driver/packages/6.18.38/` | Stock `.txz` + `.md5` deleted, patched ones copied in |
-| `/boot/config/plugins/nvidia-driver/settings.cfg` | `driver_version=615.71.09`, `update_check=false`. Original saved to `./out/settings.cfg.orig` |
-| `/boot/config/modprobe.d/cmp-pcie-gen2.conf` | Created (PCIe Gen2 module option from cmpunlocker) |
-| `/boot/config/cmp-gen2-hammer.sh` | Copy of cmpunlocker's `tools/hammer.sh`. Asks the link to retrain at Gen2; this only succeeds when the card advertises Gen2 (see below) |
-| `/boot/config/go` | One line inserted before `emhttp` (marked `# cmp-unraid gen2`) that unloads the nvidia modules (the plugin has already loaded them), reloads them, and runs the script above (capped at 100 attempts). Adds a few seconds to boot; log in `/var/log/gen2.log`. Trust `nvidia-smi`, not the log |
+| `config/plugins/nvidia-driver/packages/<kernel>/` | Stock `.txz` + `.md5` replaced by the patched ones |
+| `config/plugins/nvidia-driver/settings.cfg` | `driver_version` set, `update_check=false`. Original saved to `./out/settings.cfg.orig` |
+| `config/modprobe.d/cmp-pcie-gen2.conf` | PCIe Gen2 module option from cmpunlocker |
+| `config/cmp-gen2-hammer.sh` | Copy of cmpunlocker's `tools/hammer.sh`, which retrains the link to Gen2 |
+| `config/go` | One line (marked `# cmp-unraid gen2`) before `emhttp`: reloads the nvidia modules, then runs `cmp-gen2-hammer.sh`. Adds a few seconds to boot; log in `/var/log/gen2.log` |
 
-Then **power off completely** (not a warm reboot), power on, verify:
+Then **power off completely** (not a warm reboot), wait for the power to drop, and power on.
+
+### `bash cmpunraider.sh uninstall`
+
+Reverts `install`, then reboot:
+
+- Restores the stock package from `./cache/` and `settings.cfg` from `./out/settings.cfg.orig`.
+- Deletes the modprobe file, `cmp-gen2-hammer.sh` and the marked line in `go`.
+- Keeps `./cache/`, `./out/` (~1 GB), the Docker image and the script. Delete them by hand if you want the space back.
+
+Without a cached stock package the plugin downloads the newest stock driver at next boot (needs internet).
+
+## Verify it worked
 
 ```bash
 nvidia-smi --query-gpu=name,memory.total,pcie.link.gen.current --format=csv
 ```
 
-Expect ~65536 MiB and PCIe gen 2 for the 8 GB card (~40960 MiB for the 10 GB card). The card
-boots at gen 1; the `go` hook above retrains it to gen 2. Check `pcie.link.gen.current` while the
-GPU is busy, since an idle card can report a lower speed. The link width (e.g. x8) is set by your
-motherboard slot, not by this tool.
+| Result | Meaning |
+|---|---|
+| `NVIDIA CMP 170HX`, `65536 MiB` (8 GB card) or ~`40960 MiB` (10 GB card), gen `2` | Fully working |
+| `8192 MiB` / `10240 MiB` or name `NVIDIA Graphics Device` | Memory unlock not active, see below |
+| Memory correct, gen `1` | Gen2 retrain didn't take, see below |
 
-**Expect a harmless "Gen2 failed" message.** `dmesg` shows `CMP Gen2: PCIe retrain completed without Gen2
-link` on every boot: that is the driver's own retrain at load, which misses. Judge by `nvidia-smi` and
-`lspci -vv -s <bdf> | grep LnkSta:` (`Speed 5GT/s`), not by that message.
+An idle card can report a lower link speed, so check gen while the GPU is busy. For more detail:
 
-**Why the hook reloads the driver first.** Loading the driver is what makes the card advertise Gen2
-(`setpci ... CAP_EXP+2c.l` goes from `00000002` to `00000006`), but the driver's own retrain misses,
-and by the time `go` runs the plugin-loaded driver's setting is gone again (observed: `00000002` at
-~214 s after boot, for reasons not found). While the card advertises only Gen1 no retrain can work, so
-the hook reloads the driver, which sets `00000006`, and then retrains, which succeeds at iteration 1.
+```bash
+lspci -vv -s <bdf> | grep LnkSta:                     # Speed 5GT/s = gen 2; width (x8, x16) comes from your slot
+bash <script folder>/cache/cmpunlocker/verify.sh      # cmpunlocker's own check: memory, profile and PCIe gen
+dmesg | grep SEC2_DEBUG                               # unlock log lines
+cat /var/log/gen2.log                                 # result of the boot-time Gen2 retrain
+```
 
-If it stays at gen 1, check `setpci -s <bdf> CAP_EXP+2c.l`: `00000006` means the card advertises
-gen 2, `00000002` means it doesn't. In the second case the retrain can't help.
+**Memory still stock.** Make sure you did a full power-off, not a warm reboot. Check that the patched driver is
+loaded (`modinfo -F version nvidia`, `dmesg | grep SEC2_DEBUG`). An Unraid update brings a new kernel and the
+plugin then installs a stock driver, so rerun `build` and `install`.
 
-### `bash cmpunraider.sh uninstall`
-
-Reverts everything `build` and `install` did, then reboot:
-
-- Restores the stock `.txz` + `.md5` from `./cache/` into the packages dir.
-- Restores `settings.cfg` from `./out/settings.cfg.orig`.
-- Deletes `/boot/config/modprobe.d/cmp-pcie-gen2.conf` (and the dir, if it's now empty), `/boot/config/cmp-gen2-hammer.sh`, and the marked line in `/boot/config/go`.
-- Keeps `./cache/` and `./out/` (build cache, ~1 GB) and the `ghcr.io/ich777/unraid_kernel` Docker
-  image. Delete them by hand (`rm -rf cache out`, `docker rmi ...`) if you want the space back.
-- Keeps `cmpunraider.sh` and this README — delete those by hand if you want them gone too.
-
-If `./cache/` was already gone, the packages dir is left empty and the plugin downloads the
-newest stock driver on next boot instead (needs internet).
-
-Nothing else is touched. Unraid's root filesystem lives in RAM and is rebuilt from `/boot`
-at every boot, so no live-system change survives a reboot on its own.
+**Gen 1 instead of Gen 2.**
+- `grep "cmp-unraid gen2" /boot/config/go` must show the line; if not, rerun `install`.
+- `setpci -s <bdf> CAP_EXP+2c.l` reads `00000006` when the card advertises Gen 2 and `00000002` when it doesn't.
+  The retrain only works in the first case, and the driver reload in the hook is what produces it.
+- `dmesg` always shows `CMP Gen2: PCIe retrain completed without Gen2 link`. That is the driver's own
+  retrain at load, which misses; ignore it and judge by `nvidia-smi` and `lspci`.
 
 ## Notes
 
-- **Unraid OS update** = new kernel. The plugin downloads a stock driver for the new kernel
-  and the unlock is gone until you rerun `build` then `install`.
-- Do not change the driver version or click update in the plugin GUI while installed; that
-  overwrites the patched package with stock.
-- Plugin (.plg) updates are fine; they do not touch the packages dir.
+- **Unraid OS update** = new kernel, so the unlock is gone until you rerun `build` and `install`.
+- Don't change the driver version or click update in the plugin GUI while installed; that replaces the patched package with stock.
+- **Multiple cards:** the patches identify cards by PCI ID and the retrain handles every card it finds, so several
+  cards should work, but this is only tested with one. A mixed 8 GB + 10 GB setup uses the `mixed` profile.
 - Unlocked HBM is binned silicon. Test the memory before trusting all 64 GB.
 
 ## Dependency risk
 
-`build` needs a pre-compiled Unraid kernel source tree matching your exact `uname -r`,
-published at [ich777/unraid_kernel](https://github.com/ich777/unraid_kernel/releases). As of
-September 2026 ich777 has stepped back from actively maintaining Unraid plugins/drivers;
-existing releases stay downloadable indefinitely (GitHub doesn't remove them), but a brand
-new Unraid kernel version might not get a matching release right away, or ever.
-
-A generic `gcc` Docker image would not fix this — the missing piece isn't the compiler, it's
-Unraid's patched kernel source/config for your exact kernel build, which only exists in that
-repo's releases. If `build` fails with "no pre-compiled kernel tree", either wait for a
-matching release to appear, or stay on your current Unraid version until one does.
+`build` needs a pre-compiled Unraid kernel tree matching your exact `uname -r`, published at
+[ich777/unraid_kernel](https://github.com/ich777/unraid_kernel/releases). As of September 2026 ich777 has
+stepped back from maintaining Unraid plugins and drivers. Existing releases stay downloadable, but a new
+Unraid kernel might not get a matching release right away, or ever. A generic `gcc` image doesn't help, because
+the missing piece is Unraid's patched kernel config, not the compiler. If `build` fails with "no pre-compiled
+kernel tree", wait for a matching release or stay on your current Unraid version.
 
 ## Credits
 
-The actual unlock (the patched open-gpu-kernel-modules for the CMP 170HX) is the work of
+The unlock itself (the patched open-gpu-kernel-modules for the CMP 170HX) is the work of
 [amoghmunikote/cmpunlocker](https://github.com/amoghmunikote/cmpunlocker) and its contributors.
-cmpunraider only packages it for Unraid: it builds cmpunlocker's patched modules against the
-Unraid kernel and swaps them into the stock Nvidia-Driver plugin package. All credit for the
-unlock itself goes to them.
+cmpunraider only packages it for Unraid.
