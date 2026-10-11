@@ -8,7 +8,7 @@
 #   bash cmpunraider.sh uninstall # restores stock package + removes modprobe option, then reboot
 #
 # Env overrides: DRV=615.71.09  PROFILE=8gb|10gb|mixed (auto from lspci, 8gb if no card)
-#                CMPUNLOCKER_REF=v0.4|master|<tag>  (cmpunlocker version to build, default v0.4)
+#                CMPUNLOCKER_REF=v0.5|master|<tag>  (cmpunlocker version to build, default v0.5)
 #                IMAGE=ghcr.io/ich777/unraid_kernel:gcc_14.2.0  FORCE=1 (install without card present)
 #
 # How it works: the plugin re-installs whatever .txz sits in
@@ -21,7 +21,7 @@ trap 'echo "ERROR line $LINENO: $BASH_COMMAND" >&2' ERR
 
 DRV="${DRV:-615.71.09}"
 IMAGE="${IMAGE:-ghcr.io/ich777/unraid_kernel:gcc_14.2.0}"
-CMPUNLOCKER_REF="${CMPUNLOCKER_REF:-v0.4}"   # cmpunlocker git tag or branch (e.g. master)
+CMPUNLOCKER_REF="${CMPUNLOCKER_REF:-v0.5}"   # cmpunlocker git tag or branch (e.g. master)
 KVER="$(uname -r)"          # e.g. 6.18.38-Unraid
 KSHORT="${KVER%%-*}"        # e.g. 6.18.38
 PKG="nvidia-${DRV}-${KVER}-1.txz"
