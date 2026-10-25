@@ -1,5 +1,16 @@
 # cmpunraider – Unlock the CMP 170HX's full potential on Unraid
 
+> [!WARNING]
+> **DEPRECATED / ARCHIVED REPOSITORY**
+> This script is deprecated and no longer maintained. Please migrate to the dedicated Unraid plugin:
+> 🔗 **[cmp170hx-unlock-driver](https://github.com/IDmedia/cmp170hx-unlock-driver)**
+> **Why you should switch to the plugin:**
+> * **Driver Version 615 Removed:** Driver `615` has been removed from the official `unraid-nvidia-plugin`, rendering manual script builds obsolete.
+> * **Better GUI Integration:** View unlock status directly within the Unraid web interface.
+> * **Safer OS Updates:** Check compatibility with future Unraid versions in advance before updating your system.
+> 
+>
+
 Builds an Nvidia driver package for Unraid with kernel modules patched by
 [cmpunlocker](https://github.com/amoghmunikote/cmpunlocker) and puts it where the Nvidia-Driver
 plugin loads its driver from. The card is unlocked on every boot. No VM, no User Scripts.
